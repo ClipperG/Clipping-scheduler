@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Clipping Scheduler</title>
+
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+<div class="container">
+
+<header>
+
+    <h1>🎬 Clipping Scheduler</h1>
+
+    <p>
+        Upload videos, monitor processing, and manage scheduled Buffer posts.
+    </p>
+
+</header>
+
+<div class="cards">
+
+    <div class="card">
+        <h2 id="waiting">0</h2>
+        <p>Waiting</p>
+    </div>
+
+    <div class="card">
+        <h2 id="uploaded">0</h2>
+        <p>Uploaded</p>
+    </div>
+
+    <div class="card">
+        <h2 id="scheduled">0</h2>
+        <p>Scheduled</p>
+    </div>
+
+    <div class="card">
+        <h2 id="posted">0</h2>
+        <p>Posted</p>
+    </div>
+
+</div>
+
+<section class="upload-box">
+
+    <h2>Upload Videos</h2>
+
+    <div id="dropzone">
+
+        <h3>📂 Drop MP4 Videos Here</h3>
+
+        <p>or click to browse</p>
+
+        <input
+            id="files"
+            type="file"
+            multiple
+            accept=".mp4">
+
+    </div>
+
+    <h4 id="count">0 videos selected</h4>
+
+    <div id="filelist"></div>
+
+    <progress
+        id="progress"
+        value="0"
+        max="100">
+    </progress>
+
+    <button id="uploadBtn">
+        🚀 Upload Videos
+    </button>
+
+    <div id="status"></div>
+
+</section>
+
+<section class="toolbar">
+
+    <input
+        id="search"
+        type="text"
+        placeholder="Search filename...">
+
+    <button id="refreshBtn">
+        🔄 Refresh
+    </button>
+
+    <button id="clearBtn" class="danger">
+        🗑 Clear Queue
+    </button>
+
+</section>
+
+<section>
+
+    <h2>Queue</h2>
+
+    <table>
+
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Filename</th>
+                <th>Status</th>
+                <th>Scheduled</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+
+        <tbody id="queueBody">
+        </tbody>
+
+    </table>
+
+</section>
+
+<section class="buffer-box">
+
+    <h2>Buffer Accounts</h2>
+
+    <div id="bufferAccounts"></div>
+
+    <h3>Add Buffer Account</h3>
+
+    <input
+    id="bufferName"
+    type="text"
+    placeholder="Account Name">
+
+<input
+    id="bufferToken"
+    type="text"
+    placeholder="Buffer API Token">
+
+<button onclick="addBufferAccount()">
+    ➕ Add Account
+</button>
+
+</section>
+
+</div>
+
+<script src="/static/app.js"></script>
+
+</body>
+</html>

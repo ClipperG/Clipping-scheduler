@@ -1,0 +1,24 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Environment
+.env
+
+# Database
+data/
+*.db
+
+# Generated folders
+incoming/
+uploaded/
+failed/
+
+# Runtime files
+used_captions.json
+used_hashtags.json
+
+# IDE
+.vscode/
+.idea/
