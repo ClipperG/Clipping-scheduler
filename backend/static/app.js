@@ -83,7 +83,7 @@ function updateList(){
         div.className = "file";
 
         div.innerHTML = `
-            🎥 ${file.name}
+            ${file.name}
             <span style="float:right;color:#94a3b8;">
                 ${(file.size/1024/1024).toFixed(1)} MB
             </span>
@@ -154,7 +154,7 @@ async function uploadAll(){
         progress.value = 100;
 
         statusBox.innerHTML = `
-            ✅ Uploaded ${result.uploaded} video(s)
+            Uploaded ${result.uploaded} video(s)
         `;
 
         files = [];
@@ -177,7 +177,7 @@ async function uploadAll(){
         progress.value = 0;
 
         statusBox.innerHTML = `
-            ❌ ${err.message}
+            Error: ${err.message}
         `;
 
     }
@@ -318,7 +318,7 @@ ${schedule ? schedule.scheduled_time : "-"}
 class="action-btn post-btn"
 onclick="postNow(${video.id})">
 
-🚀 Post
+Post
 
 </button>
 
@@ -326,7 +326,7 @@ onclick="postNow(${video.id})">
 class="action-btn edit-btn"
 onclick="editSchedule(${video.id})">
 
-📅 Edit
+Edit
 
 </button>
 
@@ -334,7 +334,7 @@ onclick="editSchedule(${video.id})">
 class="action-btn delete-btn"
 onclick="deleteVideo(${video.id})">
 
-🗑 Delete
+Delete
 
 </button>
 
@@ -410,7 +410,7 @@ async function deleteVideo(id){
         if(!response.ok)
             throw new Error("Delete failed");
 
-        statusBox.innerHTML = "🗑 Video deleted";
+        statusBox.innerHTML = "Video deleted";
 
         loadDashboard();
 
@@ -445,7 +445,7 @@ async function postNow(id){
         if(!response.ok)
             throw new Error(result.detail || "Unable to post");
 
-        statusBox.innerHTML = "🚀 Video queued for Buffer";
+        statusBox.innerHTML = "Video queued for Buffer";
 
         loadDashboard();
 
@@ -505,7 +505,7 @@ async function editSchedule(id) {
                 throw new Error(result.detail || "Unable to update");
             }
 
-            statusBox.innerHTML = "✅ Schedule updated";
+            statusBox.innerHTML = "Schedule updated";
 
             loadDashboard();
 
@@ -542,7 +542,7 @@ if(clearBtn){
                 throw new Error("Unable to clear queue");
 
             statusBox.innerHTML =
-                "🧹 Queue cleared";
+                "Queue cleared";
 
             loadDashboard();
 
@@ -583,7 +583,7 @@ async function loadBufferAccounts() {
         html += `
             <tr>
                 <td>${account.name}</td>
-                <td>${account.active ? "✅" : "❌"}</td>
+                <td><span class="badge ${account.active ? "posted" : "waiting"}">${account.active ? "Active" : "Inactive"}</span></td>
                 <td>
     <button onclick="activateBufferAccount(${account.id})">
         Use
@@ -650,6 +650,7 @@ async function deleteBufferAccount(id) {
 // Initial page load
 loadDashboard();
 loadBufferAccounts();
+loadChannels();
 async function activateBufferAccount(id) {
 
     await fetch(`/buffer-accounts/${id}/activate`, {
@@ -683,7 +684,7 @@ async function loadChannels() {
         <tr>
             <td>${c.name}</td>
             <td>${c.platform}</td>
-            <td>${c.enabled ? "✅ Enabled" : "❌ Disabled"}</td>
+            <td><span class="badge ${c.enabled ? "posted" : "waiting"}">${c.enabled ? "Enabled" : "Disabled"}</span></td>
         </tr>
         `;
     });

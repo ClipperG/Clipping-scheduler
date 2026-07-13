@@ -7,6 +7,9 @@
 
     <title>Clipping Scheduler</title>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="/static/style.css">
 </head>
 
@@ -16,166 +19,220 @@
 
 <header>
 
-    <h1>🎬 Clipping Scheduler</h1>
+    <div class="header-text">
+        <h1>Clipping Scheduler</h1>
+        <p>Upload videos, monitor processing, and manage scheduled Buffer posts.</p>
+    </div>
 
-    <p>
-        Upload videos, monitor processing, and manage scheduled Buffer posts.
-    </p>
+    <div class="live-pill">
+        <span class="dot"></span>
+        Pipeline running
+    </div>
 
 </header>
 
-<div class="cards">
+<section class="pipeline-rail" aria-label="Pipeline status">
 
-    <div class="card">
+    <div class="rail-node" data-stage="waiting">
+        <span class="stage-label">01 · Incoming</span>
         <h2 id="waiting">0</h2>
         <p>Waiting</p>
     </div>
 
-    <div class="card">
+    <div class="rail-arrow">→</div>
+
+    <div class="rail-node" data-stage="uploaded">
+        <span class="stage-label">02 · Storage</span>
         <h2 id="uploaded">0</h2>
         <p>Uploaded</p>
     </div>
 
-    <div class="card">
+    <div class="rail-arrow">→</div>
+
+    <div class="rail-node" data-stage="scheduled">
+        <span class="stage-label">03 · Queued</span>
         <h2 id="scheduled">0</h2>
         <p>Scheduled</p>
     </div>
 
-    <div class="card">
+    <div class="rail-arrow">→</div>
+
+    <div class="rail-node" data-stage="posted">
+        <span class="stage-label">04 · Live</span>
         <h2 id="posted">0</h2>
         <p>Posted</p>
     </div>
 
-</div>
+</section>
 
-<section class="upload-box">
+<nav class="tabs">
+    <button class="tab-btn active" id="tab-queue-btn" onclick="showQueuePage()">Queue</button>
+    <button class="tab-btn" id="tab-buffer-btn" onclick="showBufferPage()">Buffer</button>
+</nav>
 
-    <h2>Upload Videos</h2>
+<div id="queue-page" class="page active">
 
-    <div id="dropzone">
+    <section class="upload-box">
 
-        <h3>📂 Drop MP4 Videos Here</h3>
+        <h2>Upload videos</h2>
 
-        <p>or click to browse</p>
+        <div id="dropzone">
+
+            <h3>Drop MP4 videos here</h3>
+
+            <p>or click to browse</p>
+
+            <input
+                id="files"
+                type="file"
+                multiple
+                accept=".mp4">
+
+        </div>
+
+        <h4 id="count">0 videos selected</h4>
+
+        <div id="filelist"></div>
+
+        <progress
+            id="progress"
+            value="0"
+            max="100">
+        </progress>
+
+        <button id="uploadBtn">
+            Upload videos
+        </button>
+
+        <div id="status"></div>
+
+    </section>
+
+    <section class="toolbar">
 
         <input
-            id="files"
-            type="file"
-            multiple
-            accept=".mp4">
+            id="search"
+            type="text"
+            placeholder="Search filename...">
 
-    </div>
+        <button id="refreshBtn">
+            Refresh
+        </button>
 
-    <h4 id="count">0 videos selected</h4>
+        <button id="clearBtn" class="danger">
+            Clear queue
+        </button>
 
-    <div id="filelist"></div>
+    </section>
 
-    <progress
-        id="progress"
-        value="0"
-        max="100">
-    </progress>
+    <section>
 
-    <button id="uploadBtn">
-        🚀 Upload Videos
-    </button>
+        <h2>Queue</h2>
 
-    <div id="status"></div>
+        <table>
 
-</section>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Filename</th>
+                    <th>Status</th>
+                    <th>Scheduled</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
 
-<section class="toolbar">
+            <tbody id="queueBody">
+            </tbody>
 
-    <input
-        id="search"
-        type="text"
-        placeholder="Search filename...">
+        </table>
 
-    <button id="refreshBtn">
-        🔄 Refresh
-    </button>
+    </section>
 
-    <button id="clearBtn" class="danger">
-        🗑 Clear Queue
-    </button>
+</div>
 
-</section>
+<div id="buffer-page" class="page">
 
-<section>
+    <section class="buffer-box">
 
-    <h2>Queue</h2>
+        <h2>Buffer accounts</h2>
 
-    <table>
+        <div id="bufferAccounts"></div>
 
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Filename</th>
-                <th>Status</th>
-                <th>Scheduled</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
+        <h3>Add Buffer account</h3>
 
-        <tbody id="queueBody">
-        </tbody>
+        <div class="buffer-form">
 
-    </table>
+            <input
+                id="bufferName"
+                type="text"
+                placeholder="Account name">
 
-</section>
+            <input
+                id="bufferToken"
+                type="text"
+                placeholder="Buffer API token">
 
-<section class="buffer-box">
+            <button onclick="addBufferAccount()">
+                Add account
+            </button>
 
-    <h2>Buffer Accounts</h2>
+        </div>
 
-    <div id="bufferAccounts"></div>
+    </section>
 
-    <h3>Add Buffer Account</h3>
+    <hr class="section-divider">
 
-    <input
-    id="bufferName"
-    type="text"
-    placeholder="Account Name">
+    <section class="buffer-box">
 
-<input
-    id="bufferToken"
-    type="text"
-    placeholder="Buffer API Token">
+        <h2>Buffer channels</h2>
 
-<button onclick="addBufferAccount()">
-    ➕ Add Account
-</button>
+        <button onclick="syncChannels()">
+            Sync channels
+        </button>
 
-</section>
+        <br><br>
+
+        <table id="channels-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Platform</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+
+            <tbody></tbody>
+
+        </table>
+
+    </section>
+
+</div>
 
 </div>
 
 <script src="/static/app.js"></script>
 
+<script>
+    // Tab switching between the Queue and Buffer views.
+    function showQueuePage(){
+        document.getElementById('queue-page').classList.add('active');
+        document.getElementById('buffer-page').classList.remove('active');
+        document.getElementById('tab-queue-btn').classList.add('active');
+        document.getElementById('tab-buffer-btn').classList.remove('active');
+    }
+
+    function showBufferPage(){
+        document.getElementById('buffer-page').classList.add('active');
+        document.getElementById('queue-page').classList.remove('active');
+        document.getElementById('tab-buffer-btn').classList.add('active');
+        document.getElementById('tab-queue-btn').classList.remove('active');
+
+        if (typeof loadChannels === 'function') {
+            loadChannels();
+        }
+    }
+</script>
+
 </body>
 </html>
-<button onclick="showBufferPage()">Buffer</button>
-<div id="buffer-page" class="page">
-
-    <h2>Buffer Channels</h2>
-
-    <button onclick="syncChannels()">
-        🔄 Sync Channels
-    </button>
-
-    <br><br>
-
-    <table id="channels-table">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Platform</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-
-        <tbody></tbody>
-
-    </table>
-
-</div>
