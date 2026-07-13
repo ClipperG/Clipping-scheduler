@@ -332,3 +332,59 @@ def upload_to_single_channel(
         due_at=due_at,
         metadata=metadata,
     )
+def get_channels():
+    headers = {
+        "Authorization": f"Bearer {get_buffer_token()}",
+        "Content-Type": "application/json",
+    }
+
+    org_query = """
+    query {
+      account {
+        organizations {
+          id
+        }
+      }
+    }
+    """
+
+    response = requests.post(
+        "https://api.buffer.com/graphql",
+        headers=headers,
+        json={"query": org_query},
+        timeout=30,
+    )
+
+    response.raise_for_status()
+
+    org = response.json()
+
+    if "errors" in org:
+        return org
+
+    organization_id = org["data"]["account"]["organizations"][0]["id"]
+
+    channels_query = f"""
+    query {{
+      channels(
+        input: {{
+          organizationId: "{organization_id}"
+        }}
+      ) {{
+        id
+        name
+        service
+      }}
+    }}
+    """
+
+    response = requests.post(
+        "https://api.buffer.com/graphql",
+        headers=headers,
+        json={"query": channels_query},
+        timeout=30,
+    )
+
+    response.raise_for_status()
+
+    return response.json()

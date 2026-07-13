@@ -658,3 +658,33 @@ async function activateBufferAccount(id) {
 
     loadBufferAccounts();
 }
+async function syncChannels() {
+    const res = await fetch("/buffer/sync", {
+        method: "POST"
+    });
+
+    const data = await res.json();
+
+    alert(`Added ${data.added} new channels.\nTotal: ${data.total}`);
+
+    loadChannels();
+}
+
+async function loadChannels() {
+    const res = await fetch("/buffer/channels");
+    const channels = await res.json();
+
+    const tbody = document.querySelector("#channels-table tbody");
+
+    tbody.innerHTML = "";
+
+    channels.forEach(c => {
+        tbody.innerHTML += `
+        <tr>
+            <td>${c.name}</td>
+            <td>${c.platform}</td>
+            <td>${c.enabled ? "✅ Enabled" : "❌ Disabled"}</td>
+        </tr>
+        `;
+    });
+}

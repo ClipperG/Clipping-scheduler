@@ -206,3 +206,13 @@ def activate_account(account_id: int):
 
     finally:
         db.close()
+        # backend/api/buffer_accounts.py
+
+from fastapi import APIRouter
+from backend.services.channel_sync import sync_channels
+
+router = APIRouter()
+
+@router.post("/buffer/sync")
+def sync():
+    return sync_channels()

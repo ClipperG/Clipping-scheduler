@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 import shutil
+from backend.services.channel_sync import sync_channels
+
 
 from fastapi import (
     FastAPI,
@@ -261,6 +263,24 @@ def dashboard():
 
     return stats
 
+@app.get("/buffer/channels")
+def buffer_channels():
+    db = SessionLocal()
+
+    channels = db.query(BufferAccount).all()
+
+    result = []
+
+    for c in channels:
+        result.append({
+            "name": c.name,
+            "platform": c.platform,
+            "enabled": c.enabled,
+        })
+
+    db.close()
+
+    return result
 
 @app.get("/queue")
 def queue():
@@ -417,3 +437,5 @@ def update_schedule(video_id: int, body: dict = Body(...)):
 
     finally:
         db.close()
+        
+
