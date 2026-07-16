@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import List
 import shutil
 from backend.services.channel_sync import sync_channels
+from backend.services.assignment_service import assign_videos
+from backend.services.daily_scheduler import schedule_today
+from backend.services.daily_pipeline import run_daily_pipeline
+from backend.services.health_check import health_check
 
 
 from fastapi import (
@@ -22,6 +26,7 @@ from fastapi.templating import Jinja2Templates
 
 from backend.core.settings import settings
 from backend.database.database import Base, engine, SessionLocal
+from backend.database.migrations import migrate_video_assignments
 
 from backend.models.video import Video
 from backend.models.account import BufferAccount
@@ -36,9 +41,6 @@ from backend.services.caption_service import get_random_caption
 from backend.services.hashtag_service import get_random_hashtags
 from backend.services.folder_watcher import start_watcher
 from backend.services.background_worker import start_background_worker
-from backend.services.scheduler_worker import start_scheduler_worker
-from backend.services.scheduler import generate_schedule
-from backend.services.uploader import upload_all
 from backend.services.buffer_service import upload_to_buffer
 
 
@@ -49,7 +51,6 @@ async def lifespan(app: FastAPI):
 
     start_watcher()
     start_background_worker()
-    start_scheduler_worker()
 
     yield
 
@@ -62,9 +63,42 @@ app = FastAPI(
 )
 
 Base.metadata.create_all(bind=engine)
+migrate_video_assignments(engine)
 app.include_router(schedule_router)
 app.include_router(buffer_accounts_router)
 BASE_DIR = Path(__file__).parent
+
+@app.post("/buffer/sync")
+def buffer_sync():
+    result = sync_channels()
+    if not result.get("success", False) and result.get("status_code"):
+        raise HTTPException(
+            status_code=result["status_code"],
+            detail=result["error"],
+            headers={"Retry-After": result["retry_after"]}
+            if result.get("retry_after")
+            else None,
+        )
+    return result
+
+@app.post("/assign")
+def assign():
+    return assign_videos()
+
+
+@app.post("/schedule/today")
+def schedule():
+    return schedule_today()
+
+
+@app.post("/pipeline")
+def pipeline():
+    return run_daily_pipeline()
+
+
+@app.get("/health/posts")
+def check_posts():
+    return health_check()
 
 app.mount(
     "/static",
@@ -154,6 +188,11 @@ def delete_video(video_id: int):
         
 @app.post("/queue/{video_id}/post")
 def post_now(video_id: int):
+    raise HTTPException(
+        status_code=409,
+        detail="Direct posting is disabled because it sends one clip to every channel. Use /pipeline so each clip is assigned to one channel only.",
+    )
+
     db = SessionLocal()
 
     try:
@@ -300,8 +339,6 @@ def queue():
             "filename": video.filename,
             "status": video.status,
             "r2_url": video.r2_url,
-            "instagram_buffer_id": video.instagram_buffer_id,
-            "youtube_buffer_id": video.youtube_buffer_id,
         })
 
     db.close()
@@ -336,6 +373,7 @@ def clear_queue():
     db = SessionLocal()
 
     try:
+        db.query(ChannelVideoQueue).delete()
         db.query(Schedule).delete()
         db.query(Video).delete()
         db.commit()
@@ -350,6 +388,11 @@ from zoneinfo import ZoneInfo
 
 @app.put("/schedule/{video_id}")
 def update_schedule(video_id: int, body: dict = Body(...)):
+    raise HTTPException(
+        status_code=409,
+        detail="Direct scheduling is disabled because it sends one clip to every channel. Use /pipeline so each clip is assigned to one channel only.",
+    )
+
     db = SessionLocal()
 
     try:
@@ -438,4 +481,3 @@ def update_schedule(video_id: int, body: dict = Body(...)):
     finally:
         db.close()
         
-

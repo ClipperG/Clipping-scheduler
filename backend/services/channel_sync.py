@@ -1,6 +1,7 @@
 from backend.database.database import SessionLocal
 from backend.models.buffer_workspace import BufferWorkspace
 from backend.models.account import BufferAccount
+import requests
 
 from backend.services.buffer_service import get_channels
 
@@ -18,7 +19,20 @@ def sync_channels():
         if not workspace:
             raise Exception("No active workspace.")
 
-        result = get_channels()
+        try:
+            result = get_channels()
+        except requests.HTTPError as exc:
+            response = exc.response
+            status_code = response.status_code if response is not None else 502
+            retry_after = response.headers.get("Retry-After") if response is not None else None
+            return {
+                "success": False,
+                "status_code": status_code,
+                "error": "Buffer rate limit reached. Please wait before syncing again."
+                if status_code == 429
+                else "Buffer channel sync failed.",
+                "retry_after": retry_after,
+            }
 
         print("BUFFER RESPONSE:")
         print(result)

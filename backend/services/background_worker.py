@@ -6,7 +6,7 @@ from pathlib import Path
 from backend.database.database import SessionLocal
 from backend.models.video import Video
 from backend.services.r2_service import upload_video
-from backend.services.queue_builder import build_queues
+from backend.services.daily_pipeline import run_daily_pipeline_if_ready
 
 
 WATCH_FOLDER = Path(r"C:\Users\rexhe\Clipping-scheduler\incoming")
@@ -60,8 +60,12 @@ def worker():
                 video.status = "uploaded"
                 db.commit()
 
-                # Add the uploaded video to every enabled channel queue
-                build_queues()
+                pipeline = run_daily_pipeline_if_ready()
+                if pipeline.get("scheduled") is False:
+                    print(
+                        "Waiting for a complete batch: "
+                        f"{pipeline['available_clips']}/{pipeline['required_clips']} clips ready."
+                    )
 
                 destination = UPLOADED_FOLDER / video.filename
                 shutil.move(str(filepath), str(destination))

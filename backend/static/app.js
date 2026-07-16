@@ -666,6 +666,11 @@ async function syncChannels() {
 
     const data = await res.json();
 
+    if (!res.ok) {
+        alert(data.detail || data.error || "Unable to sync Buffer channels. Please try again later.");
+        return;
+    }
+
     alert(`Added ${data.added} new channels.\nTotal: ${data.total}`);
 
     loadChannels();

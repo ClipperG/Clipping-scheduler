@@ -45,8 +45,6 @@ class VideoHandler(FileSystemEventHandler):
     filename=filepath.name,
     status="waiting",
     r2_url=None,
-    instagram_buffer_id=None,
-    youtube_buffer_id=None,
 )
 
             db.add(video)
