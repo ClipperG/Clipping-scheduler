@@ -1,105 +1,288 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
 
 from backend.database.database import SessionLocal
 from backend.models.video import Video
 from backend.models.account import BufferAccount
-from backend.models.buffer_workspace import BufferWorkspace
 from backend.services.buffer_service import upload_to_single_channel
-from backend.services.caption_service import get_random_caption
-from backend.services.hashtag_service import get_random_hashtags
 
 
-POSTS_PER_DAY = 3
+# Fixed posting times (UTC)
+POSTING_SLOTS = [
+    (0, 0),
+    (8, 0),
+    (16, 0),
+]
 
-SCHEDULE_INTERVAL = timedelta(hours=8)
-FIRST_POST_DELAY = timedelta(minutes=5)
+
+def get_next_post_time(last_scheduled=None):
+    """
+    Find the next available fixed posting slot.
+    """
+
+    now = datetime.now(timezone.utc)
+
+    slots = []
+
+    for days_ahead in range(0, 14):
+
+        day = now + timedelta(days=days_ahead)
+
+        for hour, minute in POSTING_SLOTS:
+
+            slot = day.replace(
+                hour=hour,
+                minute=minute,
+                second=0,
+                microsecond=0,
+            )
+
+            if slot > now:
+                slots.append(slot)
 
 
-def schedule_today():
+    slots.sort()
+
+
+    if last_scheduled:
+
+        for slot in slots:
+
+            if slot > last_scheduled:
+                return slot
+
+
+    return slots[0]
+
+
+
+def schedule_single_video(video_id):
+    """
+    Schedule one assigned video to Buffer.
+    """
+
     db = SessionLocal()
 
     try:
-        channels = (
+
+        video = (
+            db.query(Video)
+            .filter(Video.id == video_id)
+            .first()
+        )
+
+
+        if video is None:
+
+            print(
+                f"❌ Video {video_id} not found"
+            )
+
+            return False
+
+
+
+        channel = (
             db.query(BufferAccount)
-            .join(BufferWorkspace, BufferWorkspace.id == BufferAccount.workspace_id)
-            .filter(BufferWorkspace.active == True)
-            .filter(BufferAccount.enabled == True)
-            .order_by(BufferAccount.id)
+            .filter(
+                BufferAccount.id == video.assigned_channel_id
+            )
+            .first()
+        )
+
+
+        if channel is None:
+
+            print(
+                f"❌ Channel missing for {video.filename}"
+            )
+
+            return False
+
+
+
+        last_scheduled = (
+            db.query(Video.scheduled_for)
+            .filter(
+                Video.assigned_channel_id == channel.id
+            )
+            .filter(
+                Video.status == "scheduled"
+            )
+            .order_by(
+                Video.scheduled_for.desc()
+            )
+            .first()
+        )
+
+
+        last_time = None
+
+
+        if last_scheduled and last_scheduled[0]:
+
+            last_time = last_scheduled[0].replace(
+                tzinfo=timezone.utc
+            )
+
+
+
+        due = get_next_post_time(
+            last_time
+        )
+
+
+        # No hashtags/caption generator anymore
+        text = ""
+
+
+        result = upload_to_single_channel(
+            account=channel,
+            video_url=video.r2_url,
+            caption=text,
+            due_at=due.isoformat().replace(
+                "+00:00",
+                "Z"
+            ),
+        )
+
+
+        response = (
+            result["data"]["createPost"]
+        )
+
+
+        if response["__typename"] != "PostActionSuccess":
+
+            print(
+                f"❌ Buffer failed: {video.filename}"
+            )
+
+            print(response)
+
+            return False
+
+
+
+        video.status = "scheduled"
+
+        video.scheduled_for = due.replace(
+            tzinfo=None
+        )
+
+
+        db.commit()
+
+
+        print(
+            f"✅ {channel.name} -> "
+            f"{video.filename} scheduled "
+            f"for {due}"
+        )
+
+
+        return True
+
+
+
+    except Exception as e:
+
+        db.rollback()
+
+        print(
+            f"❌ Scheduling error: {e}"
+        )
+
+        return False
+
+
+
+    finally:
+
+        db.close()
+
+
+
+
+def schedule_today():
+    """
+    Schedule all assigned videos waiting for Buffer upload.
+    """
+
+    db = SessionLocal()
+
+    try:
+
+        videos = (
+            db.query(Video)
+            .filter(
+                Video.status == "assigned"
+            )
+            .filter(
+                Video.assigned_channel_id.isnot(None)
+            )
+            .order_by(
+                Video.id
+            )
             .all()
         )
 
-        scheduled = 0
 
-        for channel in channels:
+        if not videos:
 
-            videos = (
-                db.query(Video)
-                .filter(Video.assigned_channel_id == channel.id)
-                .filter(Video.status == "assigned")
-                .order_by(Video.id)
-                .all()
+            print(
+                "ℹ️ No videos waiting for scheduling"
             )
 
-            if not videos:
-                continue
+            return []
 
-            last_scheduled = (
-                db.query(Video.scheduled_for)
-                .filter(Video.assigned_channel_id == channel.id)
-                .filter(Video.status == "scheduled")
-                .order_by(Video.scheduled_for.desc())
-                .first()
+
+
+        results = []
+
+
+
+        for video in videos:
+
+            success = schedule_single_video(
+                video.id
             )
 
-            first_due = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-            first_due += FIRST_POST_DELAY
 
-            if last_scheduled and last_scheduled[0]:
-                last_due = last_scheduled[0].replace(tzinfo=timezone.utc)
-                first_due = max(first_due, last_due + SCHEDULE_INTERVAL)
+            results.append(
+                {
+                    "video_id": video.id,
+                    "success": success,
+                }
+            )
 
-            for position, video in enumerate(videos):
-                due = first_due + position * SCHEDULE_INTERVAL
 
-                caption = get_random_caption()
-                hashtags = get_random_hashtags()
 
-                text = caption
-                if hashtags:
-                    text += f"\n\n{hashtags}"
+        successful = sum(
+            1
+            for r in results
+            if r["success"]
+        )
 
-                result = upload_to_single_channel(
-                    account=channel,
-                    video_url=video.r2_url,
-                    caption=text,
-                    due_at=due.isoformat().replace("+00:00", "Z"),
-                )
 
-                response = result["data"]["createPost"]
+        print(
+            f"✅ Scheduled {successful}/{len(results)} videos"
+        )
 
-                if response["__typename"] != "PostActionSuccess":
-                    print(f"❌ Failed to schedule {video.filename} on {channel.name}")
-                    print(response)
-                    continue
 
-                video.status = "scheduled"
-                video.scheduled_for = due.replace(tzinfo=None)
+        return results
 
-                scheduled += 1
 
-                # Persist every successful Buffer post immediately.  If a later
-                # post fails, this clip remains scheduled and will never retry.
-                db.commit()
 
-                print(
-                    f"✅ {channel.name} -> {video.filename} scheduled for {due}"
-                )
+    except Exception as e:
 
-        return {
-            "success": True,
-            "channels": len(channels),
-            "scheduled": scheduled,
-        }
+        print(
+            f"❌ Daily scheduler error: {e}"
+        )
+
+        return []
+
+
 
     finally:
+
         db.close()

@@ -1,4 +1,3 @@
-import random
 from datetime import datetime
 
 from backend.database.database import SessionLocal
@@ -7,17 +6,30 @@ from backend.models.account import BufferAccount
 from backend.models.buffer_workspace import BufferWorkspace
 
 
-POSTS_PER_DAY = 3
+def assign_single_video(video_id):
+    """
+    Assign one uploaded video to the channel with the smallest queue.
+    """
 
-
-def assign_videos():
     db = SessionLocal()
 
     try:
-        # Get all enabled channels
+        video = (
+            db.query(Video)
+            .filter(Video.id == video_id)
+            .first()
+        )
+
+        if video is None:
+            print(f"❌ Video {video_id} not found")
+            return False
+
         channels = (
             db.query(BufferAccount)
-            .join(BufferWorkspace, BufferWorkspace.id == BufferAccount.workspace_id)
+            .join(
+                BufferWorkspace,
+                BufferWorkspace.id == BufferAccount.workspace_id
+            )
             .filter(BufferWorkspace.active == True)
             .filter(BufferAccount.enabled == True)
             .order_by(BufferAccount.id)
@@ -25,60 +37,69 @@ def assign_videos():
         )
 
         if not channels:
-            return {"success": True, "channels": 0, "assigned": 0}
+            print("❌ No active channels available")
+            return False
 
-        # Get all uploaded videos that haven't been assigned
-        unassigned = (
-            db.query(Video)
-            .filter(Video.assigned_channel_id == None)
-            .filter(Video.status == "uploaded")
-            .order_by(Video.id)
-            .all()
-        )
+        # Count current queue size for each channel
+        queue_sizes = {}
 
-        # Shuffle once, then consume each clip exactly once.  A Video has one
-        # assigned_channel_id, so it cannot be assigned to another channel.
-        random.shuffle(unassigned)
-
-        assigned_counts = {
-            channel.id: (
+        for channel in channels:
+            queue_sizes[channel.id] = (
                 db.query(Video)
                 .filter(Video.assigned_channel_id == channel.id)
-                .filter(Video.status.in_(["assigned", "scheduled"]))
+                .filter(
+                    Video.status.in_(
+                        [
+                            "assigned",
+                            "scheduled"
+                        ]
+                    )
+                )
                 .count()
             )
-            for channel in channels
-        }
 
-        assigned = 0
+        # Pick channel with smallest queue
+        channel = min(
+            channels,
+            key=lambda c: (
+                queue_sizes[c.id],
+                c.id
+            )
+        )
 
-        for video in unassigned:
-            eligible = [
-                channel
-                for channel in channels
-                if assigned_counts[channel.id] < POSTS_PER_DAY
-            ]
-
-            if not eligible:
-                break
-
-            # Always fill the least-populated channel first, so partial uploads
-            # are spread evenly and later uploads fill the remaining gaps.
-            channel = min(eligible, key=lambda item: (assigned_counts[item.id], item.id))
-
-            video.assigned_channel_id = channel.id
-            video.assigned_date = datetime.utcnow()
-            video.status = "assigned"
-            assigned_counts[channel.id] += 1
-            assigned += 1
+        video.assigned_channel_id = channel.id
+        video.assigned_date = datetime.utcnow()
+        video.status = "assigned"
 
         db.commit()
 
-        return {
-            "success": True,
-            "channels": len(channels),
-            "assigned": assigned,
-        }
+        print(
+            f"✅ Assigned {video.filename} "
+            f"-> {channel.name} "
+            f"(queue: {queue_sizes[channel.id] + 1})"
+        )
+
+        return True
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Assignment error: {e}")
+        return False
 
     finally:
         db.close()
+
+
+def assign_videos(video_ids):
+    """
+    Assign multiple videos.
+    Used by upload pipeline.
+    """
+
+    results = []
+
+    for video_id in video_ids:
+        result = assign_single_video(video_id)
+        results.append(result)
+
+    return results

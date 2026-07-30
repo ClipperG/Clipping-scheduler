@@ -1,16 +1,10 @@
 print("🔥 LOADED THE CORRECT MAIN.PY")
 
 from contextlib import asynccontextmanager
-from datetime import datetime
 from pathlib import Path
+from datetime import datetime
 from typing import List
 import shutil
-from backend.services.channel_sync import sync_channels
-from backend.services.assignment_service import assign_videos
-from backend.services.daily_scheduler import schedule_today
-from backend.services.daily_pipeline import run_daily_pipeline
-from backend.services.health_check import health_check
-
 
 from fastapi import (
     FastAPI,
@@ -20,36 +14,52 @@ from fastapi import (
     Body,
     HTTPException,
 )
+
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+
+# Core
 from backend.core.settings import settings
 from backend.database.database import Base, engine, SessionLocal
 from backend.database.migrations import migrate_video_assignments
 
+
+# Models
 from backend.models.video import Video
 from backend.models.account import BufferAccount
 from backend.models.schedule import Schedule
-from backend.models.buffer_workspace import BufferWorkspace
 from backend.models.channel_video_queue import ChannelVideoQueue
 
+
+# Routers
 from backend.api.buffer_accounts import router as buffer_accounts_router
 from backend.api.schedule import router as schedule_router
 
-from backend.services.caption_service import get_random_caption
-from backend.services.hashtag_service import get_random_hashtags
+
+# Services
+from backend.services.channel_sync import sync_channels
+from backend.services.daily_pipeline import (
+    run_daily_pipeline,
+    run_daily_pipeline_if_ready,
+)
+from backend.services.daily_scheduler import schedule_today
+from backend.services.assignment_service import assign_videos
+from backend.services.health_check import health_check
 from backend.services.folder_watcher import start_watcher
 from backend.services.background_worker import start_background_worker
-from backend.services.buffer_service import upload_to_buffer
+
 
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
     print("🚀 Starting application...")
 
     start_watcher()
+
     start_background_worker()
 
     yield
@@ -62,422 +72,522 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-Base.metadata.create_all(bind=engine)
-migrate_video_assignments(engine)
-app.include_router(schedule_router)
-app.include_router(buffer_accounts_router)
-BASE_DIR = Path(__file__).parent
 
+
+Base.metadata.create_all(
+    bind=engine
+)
+
+
+migrate_video_assignments(
+    engine
+)
+
+
+app.include_router(schedule_router)
+
+app.include_router(buffer_accounts_router)
+
+
+BASE_DIR = Path(__file__).parent
 @app.post("/buffer/sync")
 def buffer_sync():
+
     result = sync_channels()
-    if not result.get("success", False) and result.get("status_code"):
+
+
+    if (
+        not result.get("success", False)
+        and result.get("status_code")
+    ):
         raise HTTPException(
             status_code=result["status_code"],
             detail=result["error"],
-            headers={"Retry-After": result["retry_after"]}
-            if result.get("retry_after")
-            else None,
         )
+
+
+    if result.get("success"):
+
+        result["pipeline"] = (
+            run_daily_pipeline_if_ready()
+        )
+
+
     return result
+
+
 
 @app.post("/assign")
 def assign():
+
     return assign_videos()
+
 
 
 @app.post("/schedule/today")
 def schedule():
+
     return schedule_today()
+
 
 
 @app.post("/pipeline")
 def pipeline():
+
     return run_daily_pipeline()
+
 
 
 @app.get("/health/posts")
 def check_posts():
+
     return health_check()
+
+
 
 app.mount(
     "/static",
-    StaticFiles(directory=BASE_DIR / "static"),
+    StaticFiles(
+        directory=BASE_DIR / "static"
+    ),
     name="static",
 )
 
-templates = Jinja2Templates(directory="backend/templates")
 
-UPLOAD_FOLDER = Path(r"C:\Users\rexhe\Clipping-scheduler\incoming")
-UPLOAD_FOLDER.mkdir(exist_ok=True)
+templates = Jinja2Templates(
+    directory="backend/templates"
+)
+
+
+
+UPLOAD_FOLDER = Path(
+    r"C:\Users\rexhe\Clipping-scheduler\incoming"
+)
+
+
+UPLOAD_FOLDER.mkdir(
+    exist_ok=True
+)
+
+
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
     )
 
 
+
 @app.get("/health")
 def health():
+
     return {
-        "database": "connected",
+        "database": "connected"
     }
+
 
 
 @app.get("/settings")
 def get_settings():
+
     return {
         "app": settings.APP_NAME,
-        "buffer_connected": bool(settings.BUFFER_API_KEY),
-        "google_drive_connected": bool(settings.GOOGLE_DRIVE_FOLDER_ID),
+        "buffer_connected": bool(
+            settings.BUFFER_API_KEY
+        ),
+        "google_drive_connected": bool(
+            settings.GOOGLE_DRIVE_FOLDER_ID
+        ),
     }
-
-
 @app.get("/videos")
 def get_videos():
-    db = SessionLocal()
 
-    videos = db.query(Video).all()
-
-    result = []
-
-    for video in videos:
-        result.append({
-            "id": video.id,
-            "filename": video.filename,
-            "status": video.status,
-        })
-
-    db.close()
-
-    return result
-
-@app.delete("/queue/{video_id}")
-def delete_video(video_id: int):
     db = SessionLocal()
 
     try:
+
+        videos = (
+            db.query(Video)
+            .all()
+        )
+
+        result = []
+
+        for video in videos:
+
+            result.append(
+                {
+                    "id": video.id,
+                    "filename": video.filename,
+                    "status": video.status,
+                }
+            )
+
+        return result
+
+    finally:
+
+        db.close()
+
+
+
+@app.delete("/queue/{video_id}")
+def delete_video(video_id: int):
+
+    db = SessionLocal()
+
+    try:
+
         schedule = (
             db.query(Schedule)
-            .filter(Schedule.video_id == video_id)
+            .filter(
+                Schedule.video_id == video_id
+            )
             .first()
         )
 
         if schedule:
             db.delete(schedule)
 
+
         video = (
             db.query(Video)
-            .filter(Video.id == video_id)
+            .filter(
+                Video.id == video_id
+            )
             .first()
         )
+
 
         if video:
             db.delete(video)
 
+
         db.commit()
+
 
         return {
             "success": True
         }
 
-    finally:
-        db.close()
-        
-@app.post("/queue/{video_id}/post")
-def post_now(video_id: int):
-    raise HTTPException(
-        status_code=409,
-        detail="Direct posting is disabled because it sends one clip to every channel. Use /pipeline so each clip is assigned to one channel only.",
-    )
-
-    db = SessionLocal()
-
-    try:
-        video = (
-            db.query(Video)
-            .filter(Video.id == video_id)
-            .first()
-        )
-
-        if not video:
-            return {
-                "success": False,
-                "message": "Video not found"
-            }
-
-        caption = get_random_caption()
-        hashtags = get_random_hashtags()
-
-        post_text = caption
-
-        if hashtags:
-            post_text += f"\n\n{hashtags}"
-
-        result = upload_to_buffer(
-            video_url=video.r2_url,
-            caption=post_text,
-        )
-
-        video.status = "posted"
-
-        schedule = (
-            db.query(Schedule)
-            .filter(Schedule.video_id == video.id)
-            .first()
-        )
-
-        if schedule:
-            schedule.status = "posted"
-
-        db.commit()
-
-        return {
-            "success": True,
-            "result": result,
-        }
 
     finally:
+
         db.close()
-@app.get("/schedule")
-def get_schedule():
-    db = SessionLocal()
 
-    schedule = (
-        db.query(Schedule, Video)
-        .join(Video, Video.id == Schedule.video_id)
-        .order_by(Schedule.scheduled_time)
-        .all()
-    )
-
-    result = []
-
-    for post, video in schedule:
-        result.append(
-            {
-                "video_id": video.id,
-                "filename": video.filename,
-                "scheduled_time": post.scheduled_time.strftime("%Y-%m-%d %H:%M"),
-                "status": post.status,
-            }
-        )
-
-    db.close()
-
-    return result
-
-@app.get("/stats")
-def stats():
-    db = SessionLocal()
-
-    waiting = db.query(Video).filter(Video.status == "waiting").count()
-    uploaded = db.query(Video).filter(Video.status == "uploaded").count()
-    scheduled = db.query(Video).filter(Video.status == "scheduled").count()
-    posted = db.query(Video).filter(Video.status == "posted").count()
-
-    db.close()
-
-    return {
-        "waiting": waiting,
-        "uploaded": uploaded,
-        "scheduled": scheduled,
-        "posted": posted,
-    }
-
-
-@app.get("/dashboard")
-def dashboard():
-    db = SessionLocal()
-
-    stats = {
-        "waiting": db.query(Video).filter(Video.status == "waiting").count(),
-        "uploaded": db.query(Video).filter(Video.status == "uploaded").count(),
-        "scheduled": db.query(Video).filter(Video.status == "scheduled").count(),
-        "posted": db.query(Video).filter(Video.status == "posted").count(),
-    }
-
-    db.close()
-
-    return stats
-
-@app.get("/buffer/channels")
-def buffer_channels():
-    db = SessionLocal()
-
-    channels = db.query(BufferAccount).all()
-
-    result = []
-
-    for c in channels:
-        result.append({
-            "name": c.name,
-            "platform": c.platform,
-            "enabled": c.enabled,
-        })
-
-    db.close()
-
-    return result
-
-@app.get("/queue")
-def queue():
-    db = SessionLocal()
-
-    videos = (
-        db.query(Video)
-        .order_by(Video.id.desc())
-        .all()
-    )
-
-    result = []
-
-    for video in videos:
-        result.append({
-            "id": video.id,
-            "filename": video.filename,
-            "status": video.status,
-            "r2_url": video.r2_url,
-        })
-
-    db.close()
-
-    return result
-
-@app.post("/upload")
-async def upload(files: List[UploadFile] = File(...)):
-    print("📥 Upload request received")
-
-    uploaded = []
-
-    for file in files:
-        destination = UPLOAD_FOLDER / file.filename
-
-        with open(destination, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        print(f"✅ Saved: {file.filename}")
-
-        uploaded.append(file.filename)
-
-    return {
-        "success": True,
-        "uploaded": len(uploaded),
-        "files": uploaded,
-    }
 
 
 @app.delete("/queue")
 def clear_queue():
-    db = SessionLocal()
-
-    try:
-        db.query(ChannelVideoQueue).delete()
-        db.query(Schedule).delete()
-        db.query(Video).delete()
-        db.commit()
-
-        return {"success": True}
-
-    finally:
-        db.close()
-
-
-from zoneinfo import ZoneInfo
-
-@app.put("/schedule/{video_id}")
-def update_schedule(video_id: int, body: dict = Body(...)):
-    raise HTTPException(
-        status_code=409,
-        detail="Direct scheduling is disabled because it sends one clip to every channel. Use /pipeline so each clip is assigned to one channel only.",
-    )
 
     db = SessionLocal()
 
     try:
-        video = (
-            db.query(Video)
-            .filter(Video.id == video_id)
-            .first()
-        )
 
-        if not video:
-            raise HTTPException(status_code=404, detail="Video not found")
+        db.query(
+            ChannelVideoQueue
+        ).delete()
 
-        scheduled_time = datetime.strptime(
-            body["scheduled_time"],
-            "%Y-%m-%d %H:%M"
-        )
 
-        schedule = (
-            db.query(Schedule)
-            .filter(Schedule.video_id == video_id)
-            .first()
-        )
+        db.query(
+            Schedule
+        ).delete()
 
-        if not schedule:
-            schedule = Schedule(
-                video_id=video_id,
-                channel="ALL",
-                scheduled_time=scheduled_time,
-                status="scheduled",
-            )
-            db.add(schedule)
-        else:
-            schedule.scheduled_time = scheduled_time
 
-        local_time = scheduled_time.replace(
-            tzinfo=ZoneInfo("Europe/Tirane")
-        )
+        db.query(
+            Video
+        ).delete()
 
-        due_at = (
-            local_time
-            .astimezone(ZoneInfo("UTC"))
-            .replace(microsecond=0)
-            .isoformat()
-            .replace("+00:00", "Z")
-        )
-
-        caption = get_random_caption()
-        hashtags = get_random_hashtags()
-
-        post_text = caption
-
-        if hashtags:
-            post_text += f"\n\n{hashtags}"
-
-        print(f"Scheduling Buffer for {due_at}")
-
-        result = upload_to_buffer(
-            video_url=video.r2_url,
-            caption=post_text,
-            due_at=due_at,
-        )
-
-        instagram = result["instagram"]["data"]["createPost"]
-        youtube = result["youtube"]["data"]["createPost"]
-
-        if (
-            instagram["__typename"] != "PostActionSuccess"
-            or youtube["__typename"] != "PostActionSuccess"
-        ):
-            return {
-                "success": False,
-                "instagram": instagram,
-                "youtube": youtube,
-            }
-
-        schedule.status = "scheduled"
-        video.status = "scheduled"
 
         db.commit()
+
 
         return {
-            "success": True,
-            "scheduled_for": scheduled_time.strftime("%Y-%m-%d %H:%M"),
+            "success": True
         }
 
+
     finally:
+
         db.close()
-        
+
+
+
+@app.post("/upload")
+async def upload(
+    files: List[UploadFile] = File(...)
+):
+
+    print(
+        "📥 Upload request received"
+    )
+
+
+    uploaded = []
+
+
+    for file in files:
+
+        destination = (
+            UPLOAD_FOLDER / file.filename
+        )
+
+
+        with open(
+            destination,
+            "wb"
+        ) as buffer:
+
+            shutil.copyfileobj(
+                file.file,
+                buffer
+            )
+
+
+        print(
+            f"✅ Saved: {file.filename}"
+        )
+
+
+        uploaded.append(
+            file.filename
+        )
+
+
+    return {
+
+        "success": True,
+
+        "uploaded": len(uploaded),
+
+        "files": uploaded,
+
+    }
+
+
+
+@app.get("/stats")
+def stats():
+
+    db = SessionLocal()
+
+
+    try:
+
+        return {
+
+            "waiting":
+                db.query(Video)
+                .filter(
+                    Video.status == "waiting"
+                )
+                .count(),
+
+
+            "uploaded":
+                db.query(Video)
+                .filter(
+                    Video.status == "uploaded"
+                )
+                .count(),
+
+
+            "scheduled":
+                db.query(Video)
+                .filter(
+                    Video.status == "scheduled"
+                )
+                .count(),
+
+
+            "posted":
+                db.query(Video)
+                .filter(
+                    Video.status == "posted"
+                )
+                .count(),
+
+        }
+
+
+    finally:
+
+        db.close()
+
+
+
+@app.get("/dashboard")
+def dashboard():
+
+    db = SessionLocal()
+
+
+    try:
+
+        return {
+
+            "waiting":
+                db.query(Video)
+                .filter(
+                    Video.status == "waiting"
+                )
+                .count(),
+
+
+            "uploaded":
+                db.query(Video)
+                .filter(
+                    Video.status == "uploaded"
+                )
+                .count(),
+
+
+            "scheduled":
+                db.query(Video)
+                .filter(
+                    Video.status == "scheduled"
+                )
+                .count(),
+
+
+            "posted":
+                db.query(Video)
+                .filter(
+                    Video.status == "posted"
+                )
+                .count(),
+
+        }
+
+
+    finally:
+
+      db.close()
+@app.get("/buffer/channels")
+def buffer_channels():
+
+    db = SessionLocal()
+
+    try:
+
+        channels = (
+            db.query(BufferAccount)
+            .all()
+        )
+
+
+        result = []
+
+
+        for channel in channels:
+
+            result.append(
+                {
+                    "name": channel.name,
+                    "platform": channel.platform,
+                    "enabled": channel.enabled,
+                }
+            )
+
+
+        return result
+
+
+    finally:
+
+        db.close()
+
+
+
+@app.get("/queue")
+def queue():
+
+    db = SessionLocal()
+
+    try:
+
+        videos = (
+            db.query(Video)
+            .order_by(
+                Video.id.desc()
+            )
+            .all()
+        )
+
+
+        result = []
+
+
+        for video in videos:
+
+            result.append(
+                {
+                    "id": video.id,
+                    "filename": video.filename,
+                    "status": video.status,
+                    "r2_url": video.r2_url,
+                }
+            )
+
+
+        return result
+
+
+    finally:
+
+        db.close()
+
+
+
+@app.get("/schedule")
+def get_schedule():
+
+    db = SessionLocal()
+
+
+    try:
+
+        schedules = (
+            db.query(
+                Schedule,
+                Video
+            )
+            .join(
+                Video,
+                Video.id == Schedule.video_id
+            )
+            .order_by(
+                Schedule.scheduled_time
+            )
+            .all()
+        )
+
+
+        result = []
+
+
+        for schedule, video in schedules:
+
+            result.append(
+                {
+                    "video_id": video.id,
+                    "filename": video.filename,
+                    "scheduled_time":
+                        schedule.scheduled_time.strftime(
+                            "%Y-%m-%d %H:%M"
+                        ),
+                    "status":
+                        schedule.status,
+                }
+            )
+
+
+        return result
+
+
+    finally:
+
+        db.close()

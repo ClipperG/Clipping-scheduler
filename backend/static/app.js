@@ -671,7 +671,11 @@ async function syncChannels() {
         return;
     }
 
-    alert(`Added ${data.added} new channels.\nTotal: ${data.total}`);
+    alert(
+        `Added ${data.added} new channels.\n` +
+        `Disabled ${data.disabled || 0} removed channels.\n` +
+        `Total active channels: ${data.total}`
+    );
 
     loadChannels();
 }

@@ -1,139 +1,120 @@
-from datetime import datetime, timedelta
+import threading
+import time
+from datetime import datetime
+
 from zoneinfo import ZoneInfo
 
 from backend.database.database import SessionLocal
-from backend.models.account import BufferAccount
-from backend.models.video import Video
-from backend.models.channel_video_queue import ChannelVideoQueue
 from backend.models.schedule import Schedule
+from backend.models.video import Video
 
+from backend.services.buffer_service import upload_to_buffer
 from backend.services.caption_service import get_random_caption
-from backend.services.hashtag_service import get_random_hashtags
-from backend.services.buffer_service import upload_to_single_channel
-
-UTC = ZoneInfo("UTC")
-
-# First upload = 2 minutes from now
-# Every upload after that = 2 hours later
-UPLOAD_INTERVAL = timedelta(hours=2)
-FIRST_UPLOAD_DELAY = timedelta(minutes=2)
 
 
-def get_next_slot(db, channel_name: str):
-    now = datetime.now(UTC)
+def worker():
+    print("✅ Buffer worker started")
 
-    last_schedule = (
-        db.query(Schedule)
-        .filter(Schedule.channel == channel_name)
-        .order_by(Schedule.scheduled_time.desc())
-        .first()
-    )
+    while True:
+        print(f"🔍 Checking schedule... {datetime.now()}")
 
-    if last_schedule is None:
-        return now + FIRST_UPLOAD_DELAY
+        db = SessionLocal()
 
-    last_time = last_schedule.scheduled_time
+        try:
+            now = datetime.now()
 
-    # SQLite returns naive datetimes
-    if last_time.tzinfo is None:
-        last_time = last_time.replace(tzinfo=UTC)
-
-    if last_time <= now:
-        return now + FIRST_UPLOAD_DELAY
-
-    return last_time + UPLOAD_INTERVAL
-
-
-def run_channel_scheduler():
-    db = SessionLocal()
-
-    try:
-        accounts = (
-            db.query(BufferAccount)
-            .filter(BufferAccount.enabled == True)
-            .order_by(BufferAccount.id)
-            .all()
-        )
-
-        for account in accounts:
-
-            queue_item = (
-                db.query(ChannelVideoQueue)
+            posts = (
+                db.query(Schedule)
                 .filter(
-                    ChannelVideoQueue.channel_id == account.id,
-                    ChannelVideoQueue.posted == False,
+                    Schedule.status == "scheduled",
+                    Schedule.scheduled_time <= now,
                 )
-                .order_by(ChannelVideoQueue.queue_position.asc())
-                .first()
+                .order_by(Schedule.scheduled_time)
+                .all()
             )
 
-            if queue_item is None:
-                print(f"{account.name}: queue empty")
-                continue
+            print(f"📋 Found {len(posts)} scheduled post(s)")
 
-            video = (
-                db.query(Video)
-                .filter(Video.id == queue_item.video_id)
-                .first()
-            )
+            for post in posts:
 
-            if video is None:
-                continue
-
-            caption = get_random_caption()
-            hashtags = get_random_hashtags()
-
-            text = caption
-            if hashtags:
-                text += f"\n\n{hashtags}"
-
-            next_slot = get_next_slot(db, account.name)
-
-            due_at = (
-                next_slot
-                .astimezone(UTC)
-                .replace(microsecond=0)
-                .isoformat()
-                .replace("+00:00", "Z")
-            )
-
-            result = upload_to_single_channel(
-                account=account,
-                video_url=video.r2_url,
-                caption=text,
-                due_at=due_at,
-            )
-
-            create_post = result.get("data", {}).get("createPost", {})
-
-            if create_post.get("__typename") == "PostActionSuccess":
-
-                queue_item.posted = True
-
-                db.add(
-                    Schedule(
-                        video_id=video.id,
-                        channel=account.name,
-                        scheduled_time=next_slot,
-                        status="scheduled",
-                    )
+                video = (
+                    db.query(Video)
+                    .filter(Video.id == post.video_id)
+                    .first()
                 )
 
-                db.commit()
+                if not video:
+                    print("❌ Video not found")
+                    post.status = "failed"
+                    continue
 
-                print(
-                    f"✅ Scheduled {video.filename} -> "
-                    f"{account.name} @ {next_slot}"
+                if not video.r2_url:
+                    print(f"❌ {video.filename} has no R2 URL")
+                    post.status = "failed"
+                    continue
+
+                post_text = get_random_caption()
+
+                print()
+                print("========================================")
+                print("🚀 Sending to Buffer")
+                print(f"Video : {video.filename}")
+                print(f"Time  : {post.scheduled_time}")
+                print("========================================")
+
+                # Convert local Tirane time to UTC for Buffer
+                local_time = post.scheduled_time.replace(
+                    tzinfo=ZoneInfo("Europe/Tirane")
                 )
 
-            else:
-                db.rollback()
-
-                print(
-                    f"❌ Failed scheduling {video.filename} -> "
-                    f"{account.name}"
+                due_at = (
+                    local_time
+                    .astimezone(ZoneInfo("UTC"))
+                    .replace(microsecond=0)
+                    .isoformat()
+                    .replace("+00:00", "Z")
                 )
-                print(create_post)
 
-    finally:
-        db.close()
+                print(f"Local time : {local_time}")
+                print(f"UTC dueAt  : {due_at}")
+
+                result = upload_to_buffer(
+                    video_url=video.r2_url,
+                    caption=post_text,
+                    due_at=due_at,
+                )
+
+                instagram = result["instagram"]["data"]["createPost"]
+                youtube = result["youtube"]["data"]["createPost"]
+
+                if (
+                    instagram["__typename"] == "PostActionSuccess"
+                    and youtube["__typename"] == "PostActionSuccess"
+                ):
+                    print("✅ Successfully scheduled on Buffer")
+                    post.status = "uploaded"
+                    video.status = "posted"
+                else:
+                    print("❌ Buffer rejected upload")
+                    print(instagram)
+                    print(youtube)
+                    post.status = "failed"
+
+            db.commit()
+
+        except Exception as e:
+            db.rollback()
+            print(f"❌ Buffer worker error: {e}")
+
+        finally:
+            db.close()
+
+        time.sleep(60)
+
+
+def start_buffer_worker():
+    thread = threading.Thread(
+        target=worker,
+        daemon=True,
+    )
+    thread.start()

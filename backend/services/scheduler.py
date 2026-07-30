@@ -6,7 +6,6 @@ from backend.models.video import Video
 from backend.models.schedule import Schedule
 
 from backend.services.caption_service import get_random_caption
-from backend.services.hashtag_service import get_random_hashtags
 from backend.services.buffer_service import upload_to_buffer
 
 
@@ -36,21 +35,35 @@ def generate_schedule(video_id: int):
                 "message": "Video has no R2 URL",
             }
 
-                # Find latest scheduled post
+
+        # Find latest scheduled post
         last = (
             db.query(Schedule)
-            .order_by(Schedule.scheduled_time.desc())
+            .order_by(
+                Schedule.scheduled_time.desc()
+            )
             .first()
         )
+
 
         now = datetime.now()
 
         print("NOW :", now)
-        print("LAST:", last.scheduled_time if last else None)
+        print(
+            "LAST:",
+            last.scheduled_time if last else None
+        )
+
 
         if last and last.scheduled_time > now:
-            next_time = last.scheduled_time + timedelta(hours=GAP_HOURS)
+
+            next_time = (
+                last.scheduled_time
+                + timedelta(hours=GAP_HOURS)
+            )
+
         else:
+
             next_time = now.replace(
                 hour=START_HOUR,
                 minute=0,
@@ -61,25 +74,26 @@ def generate_schedule(video_id: int):
             while next_time <= now:
                 next_time += timedelta(hours=GAP_HOURS)
 
+
+
         next_time = next_time.replace(
             minute=0,
             second=0,
             microsecond=0,
         )
 
-        # Build caption
+
+        # ONLY CAPTION - NO HASHTAGS
         caption = get_random_caption()
-        hashtags = get_random_hashtags()
 
         post_text = caption
 
-        if hashtags:
-            post_text += f"\n\n{hashtags}"
 
         # Convert Tirana time -> UTC
         local_time = next_time.replace(
             tzinfo=ZoneInfo("Europe/Tirane")
         )
+
 
         due_at = (
             local_time
@@ -89,7 +103,11 @@ def generate_schedule(video_id: int):
             .replace("+00:00", "Z")
         )
 
-        print(f"Scheduling Buffer for {due_at}")
+
+        print(
+            f"Scheduling Buffer for {due_at}"
+        )
+
 
         result = upload_to_buffer(
             video_url=video.r2_url,
@@ -97,25 +115,51 @@ def generate_schedule(video_id: int):
             due_at=due_at,
         )
 
-        instagram = result["instagram"]["data"]["createPost"]
-        youtube = result["youtube"]["data"]["createPost"]
+
+        instagram = (
+            result["instagram"]
+            ["data"]
+            ["createPost"]
+        )
+
+        youtube = (
+            result["youtube"]
+            ["data"]
+            ["createPost"]
+        )
+
 
         if (
             instagram["__typename"] != "PostActionSuccess"
             or youtube["__typename"] != "PostActionSuccess"
         ):
+
             return {
                 "success": False,
                 "instagram": instagram,
                 "youtube": youtube,
             }
 
-        # Save Buffer IDs
-        video.instagram_buffer_id = instagram["post"]["id"]
-        video.youtube_buffer_id = youtube["post"]["id"]
 
-        print("Instagram Buffer ID:", video.instagram_buffer_id)
-        print("YouTube Buffer ID:", video.youtube_buffer_id)
+        video.instagram_buffer_id = (
+            instagram["post"]["id"]
+        )
+
+        video.youtube_buffer_id = (
+            youtube["post"]["id"]
+        )
+
+
+        print(
+            "Instagram Buffer ID:",
+            video.instagram_buffer_id
+        )
+
+        print(
+            "YouTube Buffer ID:",
+            video.youtube_buffer_id
+        )
+
 
         db.add(
             Schedule(
@@ -126,15 +170,36 @@ def generate_schedule(video_id: int):
             )
         )
 
+
         video.status = "scheduled"
 
+
         db.commit()
+
 
         return {
             "success": True,
             "video": video.filename,
-            "scheduled_for": next_time.strftime("%Y-%m-%d %H:%M"),
+            "scheduled_for": next_time.strftime(
+                "%Y-%m-%d %H:%M"
+            ),
         }
 
+
+    except Exception as e:
+
+        db.rollback()
+
+        print(
+            f"❌ Schedule generation error: {e}"
+        )
+
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
     finally:
+
         db.close()
